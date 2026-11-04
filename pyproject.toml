@@ -1,0 +1,21 @@
+[project]
+name = "scooter-rental-service"
+version = "0.1.0"
+description = "HTTP-сервис аренды электросамокатов для Домашнего задания 1 (ДВФУ Бэкенд)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.poetry]
+name = "scooter-rental-service"
+version = "0.1.0"
+description = "HTTP-сервис аренды электросамокатов для Домашнего задания 1 (ДВФУ Бэкенд)"
+authors = ["Student <student@dvfu.ru>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
