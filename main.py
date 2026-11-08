@@ -12,7 +12,7 @@ logger = logging.getLogger("scooter_app")
 
 app = FastAPI(
     title="Scooter Rental Service",
-    description="HTTP-сервис аренды электросамокатов на FastAPI для Задания 2",
+    description="HTTP-сервис аренды электросамокатов для Задания 2",
     version="2.0.0",
 )
 
@@ -28,10 +28,20 @@ async def app_exception_handler(request: Request, exc: AppException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
-    first_error = errors[0] if errors else {}
-    msg = first_error.get("msg", "Некорректный формат данных.")
-    field = ".".join(str(loc) for loc in first_error.get("loc", []) if loc != "body")
-    error_text = f"Ошибка в поле '{field}': {msg}" if field else msg
+    if errors:
+        err = errors[0]
+        msg = err.get("msg", "Некорректный формат данных.")
+        loc = [str(x) for x in err.get("loc", []) if x != "body"]
+        field = ".".join(loc)
+        if "JSON decode error" in msg:
+            error_text = "Некорректный синтаксис JSON."
+        elif field:
+            error_text = f"Некорректное значение в поле '{field}': {msg}."
+        else:
+            error_text = msg
+    else:
+        error_text = "Некорректные данные запроса."
+
     return JSONResponse(
         status_code=400,
         content={"error": error_text, "status": 400},
@@ -55,16 +65,9 @@ def ping():
 @app.get("/")
 def root():
     return {
-        "service": "Scooter Rental Service (FastAPI)",
+        "service": "Scooter Rental Service",
         "version": "2.0.0",
         "docs_url": "/docs",
-        "openapi_url": "/openapi.json",
-        "endpoints": {
-            "healthcheck": "GET /ping",
-            "users": "GET, POST /api/users, GET, PUT, DELETE /api/users/{id}",
-            "scooters": "GET, POST /api/scooters, GET, PUT, DELETE /api/scooters/{id}",
-            "operations": "POST /api/scooters/{id}/rent, POST /api/scooters/{id}/return, POST /api/scooters/{id}/charge",
-        },
     }
 
 
