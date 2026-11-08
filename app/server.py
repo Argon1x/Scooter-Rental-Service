@@ -61,13 +61,15 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
 
         return data
 
-    def _parse_int_id(self, raw_id: str, entity_name: str = "ID") -> int:
+    def _parse_int_id(self, raw_id: Any, entity_name: str = "ID") -> int:
+        if isinstance(raw_id, bool):
+            raise ValidationError(f"{entity_name} должен быть положительным целым числом.")
         try:
             val = int(raw_id)
             if val <= 0:
                 raise ValueError()
             return val
-        except ValueError:
+        except (ValueError, TypeError):
             raise ValidationError(f"{entity_name} должен быть положительным целым числом, получено '{raw_id}'.")
 
     def do_GET(self) -> None:
@@ -89,7 +91,7 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
             self._send_error(e.status_code, e.message)
         except Exception as e:
             logger.exception("Непредвиденная внутренняя ошибка: %s", e)
-            self._send_error(500, f"Внутренняя ошибка сервера: {str(e)}")
+            self._send_error(500, "Внутренняя ошибка сервера.")
 
     def _dispatch_route(self, method: str) -> None:
         parsed_url = urlparse(self.path)
@@ -161,10 +163,14 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, [u.to_dict() for u in users])
             elif method == "POST":
                 data = self._read_json_body()
-                name = data.get("name")
-                user_type = data.get("user_type", "regular")
-                if not name:
+                if "name" not in data or data["name"] is None:
                     raise ValidationError("Обязательное поле 'name' отсутствует.")
+                name = data.get("name")
+                if "user_type" in data and data["user_type"] is None:
+                    raise ValidationError("Поле 'user_type' не может быть null.")
+                user_type = data.get("user_type", "regular")
+                if user_type is None:
+                    user_type = "regular"
                 user = self.service.create_user(name=name, user_type=user_type)
                 self._send_json(201, user.to_dict())
             else:
@@ -179,6 +185,8 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
             elif method == "PUT":
                 data = self._read_json_body()
                 name = data.get("name")
+                if "user_type" in data and data["user_type"] is None:
+                    raise ValidationError("Поле 'user_type' не может быть null.")
                 user_type = data.get("user_type")
                 updated_user = self.service.update_user(user_id, name=name, user_type=user_type)
                 self._send_json(200, updated_user.to_dict())
@@ -207,10 +215,14 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, [s.to_dict() for s in scooters])
             elif method == "POST":
                 data = self._read_json_body()
-                model = data.get("model")
-                charge_level = data.get("charge_level", 100)
-                if not model:
+                if "model" not in data or data["model"] is None:
                     raise ValidationError("Обязательное поле 'model' отсутствует.")
+                model = data.get("model")
+                if "charge_level" in data and data["charge_level"] is None:
+                    raise ValidationError("Поле 'charge_level' не может быть null.")
+                charge_level = data.get("charge_level", 100)
+                if charge_level is None:
+                    charge_level = 100
                 scooter = self.service.create_scooter(model=model, charge_level=charge_level)
                 self._send_json(201, scooter.to_dict())
             else:
@@ -247,7 +259,7 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
                 user_id_raw = data.get("user_id")
                 if user_id_raw is None:
                     raise ValidationError("Для аренды требуется указать 'user_id' в теле запроса.")
-                user_id = self._parse_int_id(str(user_id_raw), "user_id")
+                user_id = self._parse_int_id(user_id_raw, "user_id")
                 scooter = self.service.rent_scooter(scooter_id=scooter_id, user_id=user_id)
                 self._send_json(200, {
                     "message": f"Самокат №{scooter_id} успешно выдан пользователю №{user_id}.",
@@ -261,7 +273,7 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
                     return
                 data = self._read_json_body()
                 battery_used = data.get("battery_used", 10)
-                if not isinstance(battery_used, (int, float)):
+                if not isinstance(battery_used, (int, float)) or isinstance(battery_used, bool):
                     raise ValidationError("Поле 'battery_used' должно быть числом.")
                 scooter = self.service.return_scooter(scooter_id=scooter_id, battery_used=int(battery_used))
                 self._send_json(200, {
@@ -276,7 +288,7 @@ class ScooterRequestHandler(BaseHTTPRequestHandler):
                     return
                 data = self._read_json_body()
                 amount = data.get("amount", 50)
-                if not isinstance(amount, (int, float)):
+                if not isinstance(amount, (int, float)) or isinstance(amount, bool):
                     raise ValidationError("Поле 'amount' должно быть числом.")
                 scooter = self.service.charge_scooter(scooter_id=scooter_id, amount=int(amount))
                 self._send_json(200, {

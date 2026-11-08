@@ -18,8 +18,14 @@ class RentalService:
         self._next_scooter_id: int = 1
 
     def create_user(self, name: str, user_type: str = "regular") -> User:
-        if not name or not name.strip():
-            raise ValidationError("Имя пользователя не может быть пустым.")
+        if not isinstance(name, str) or not name.strip():
+            raise ValidationError("Имя пользователя должно быть непустой строкой.")
+
+        if user_type is None:
+            raise ValidationError("Поле 'user_type' не может быть null.")
+
+        if not isinstance(user_type, str):
+            raise ValidationError("Поле 'user_type' должно быть строкой ('regular' или 'vip').")
 
         user_id = self._next_user_id
         self._next_user_id += 1
@@ -50,11 +56,13 @@ class RentalService:
         user = self.get_user(user_id)
 
         if name is not None:
-            if not name.strip():
-                raise ValidationError("Имя пользователя не может быть пустым.")
+            if not isinstance(name, str) or not name.strip():
+                raise ValidationError("Имя пользователя должно быть непустой строкой.")
             user.name = name.strip()
 
         if user_type is not None:
+            if not isinstance(user_type, str):
+                raise ValidationError("Поле 'user_type' должно быть строкой ('regular' или 'vip').")
             clean_type = user_type.strip().lower()
             if clean_type != user.user_type:
                 new_user = create_user_instance(user.id, user.name, clean_type)
@@ -79,10 +87,10 @@ class RentalService:
         del self._users[user_id]
 
     def create_scooter(self, model: str, charge_level: int = 100) -> Scooter:
-        if not model or not model.strip():
-            raise ValidationError("Модель самоката не может быть пустой строкой.")
+        if not isinstance(model, str) or not model.strip():
+            raise ValidationError("Модель самоката должна быть непустой строкой.")
 
-        if not isinstance(charge_level, (int, float)):
+        if not isinstance(charge_level, (int, float)) or isinstance(charge_level, bool):
             raise ValidationError("Уровень заряда должен быть числом.")
 
         charge_int = int(charge_level)
@@ -93,9 +101,6 @@ class RentalService:
         self._next_scooter_id += 1
 
         scooter = Scooter(scooter_id=scooter_id, model=model.strip(), charge_level=charge_int)
-        if scooter.charge_level < 15:
-            scooter.status = ScooterStatus.MAINTENANCE
-
         self._scooters[scooter_id] = scooter
         return scooter
 
@@ -129,13 +134,19 @@ class RentalService:
     ) -> Scooter:
         scooter = self.get_scooter(scooter_id)
 
+        if scooter.status == ScooterStatus.RENTED and charge_level is not None:
+            raise DomainRuleError(
+                f"Нельзя изменять уровень заряда самоката №{scooter_id}, пока он находится в поездке.",
+                status_code=409,
+            )
+
         if model is not None:
-            if not model.strip():
-                raise ValidationError("Модель самоката не может быть пустой.")
+            if not isinstance(model, str) or not model.strip():
+                raise ValidationError("Модель самоката должна быть непустой строкой.")
             scooter.model = model.strip()
 
         if charge_level is not None:
-            if not isinstance(charge_level, (int, float)):
+            if not isinstance(charge_level, (int, float)) or isinstance(charge_level, bool):
                 raise ValidationError("Уровень заряда должен быть числом.")
             charge_int = int(charge_level)
             if charge_int < 0 or charge_int > 100:
@@ -143,9 +154,9 @@ class RentalService:
             scooter.charge_level = charge_int
 
             if scooter.status != ScooterStatus.RENTED:
-                if scooter.charge_level < 15:
+                if scooter.charge_level < 20:
                     scooter.status = ScooterStatus.MAINTENANCE
-                elif scooter.status == ScooterStatus.MAINTENANCE and scooter.charge_level >= 20:
+                else:
                     scooter.status = ScooterStatus.AVAILABLE
 
         return scooter
@@ -202,7 +213,7 @@ class RentalService:
                 status_code=409,
             )
 
-        if not isinstance(battery_used, (int, float)) or battery_used < 0:
+        if not isinstance(battery_used, (int, float)) or isinstance(battery_used, bool) or battery_used < 0:
             raise ValidationError("Расход батареи (battery_used) должен быть неотрицательным числом.")
 
         scooter.charge_level = max(0, scooter.charge_level - int(battery_used))
@@ -213,7 +224,7 @@ class RentalService:
                 user.rented_scooter_ids.remove(scooter.id)
             scooter.current_user_id = None
 
-        if scooter.charge_level < 15:
+        if scooter.charge_level < 20:
             scooter.status = ScooterStatus.MAINTENANCE
         else:
             scooter.status = ScooterStatus.AVAILABLE
@@ -229,7 +240,7 @@ class RentalService:
                 status_code=409,
             )
 
-        if not isinstance(amount, (int, float)) or amount <= 0:
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
             raise ValidationError("Значение подзарядки (amount) должно быть положительным числом.")
 
         scooter.charge_level = min(100, scooter.charge_level + int(amount))

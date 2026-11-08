@@ -42,6 +42,8 @@ class VipUser(User):
 
 
 def create_user_instance(user_id: int, name: str, user_type: str) -> User:
+    if not isinstance(user_type, str):
+        raise ValidationError("Поле 'user_type' должно быть строкой ('regular' или 'vip').")
     clean_type = user_type.strip().lower()
     if clean_type == "regular":
         return RegularUser(user_id=user_id, name=name)
@@ -58,7 +60,7 @@ class Scooter:
         self.id = scooter_id
         self.model = model
         self.charge_level = charge_level
-        self.status = ScooterStatus.AVAILABLE
+        self.status = ScooterStatus.AVAILABLE if charge_level >= 20 else ScooterStatus.MAINTENANCE
         self.current_user_id: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:

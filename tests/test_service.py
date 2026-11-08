@@ -27,6 +27,10 @@ class TestRentalService(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.service.create_user("")
 
+    def test_create_user_null_type_fails(self):
+        with self.assertRaises(ValidationError):
+            self.service.create_user("Тест", None)
+
     def test_get_nonexistent_user_fails(self):
         with self.assertRaises(NotFoundError):
             self.service.get_user(999)
@@ -134,9 +138,9 @@ class TestRentalService(unittest.TestCase):
         scooter = self.service.create_scooter("Ninebot", 30)
         self.service.rent_scooter(scooter.id, user.id)
 
-        returned = self.service.return_scooter(scooter.id, battery_used=25)
+        returned = self.service.return_scooter(scooter.id, battery_used=15)
         self.assertEqual(returned.status, ScooterStatus.MAINTENANCE)
-        self.assertEqual(returned.charge_level, 5)
+        self.assertEqual(returned.charge_level, 15)
 
     def test_return_unrented_scooter_fails(self):
         scooter = self.service.create_scooter("Ninebot", 90)
@@ -158,6 +162,14 @@ class TestRentalService(unittest.TestCase):
 
         with self.assertRaises(DomainRuleError):
             self.service.charge_scooter(scooter.id, amount=10)
+
+    def test_cannot_update_charge_when_rented(self):
+        user = self.service.create_user("Иван", "regular")
+        scooter = self.service.create_scooter("Ninebot", 80)
+        self.service.rent_scooter(scooter.id, user.id)
+
+        with self.assertRaises(DomainRuleError):
+            self.service.update_scooter(scooter.id, charge_level=95)
 
     def test_cannot_delete_user_with_active_rental(self):
         user = self.service.create_user("Иван", "regular")
