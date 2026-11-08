@@ -1,20 +1,27 @@
 [project]
 name = "scooter-rental-service"
-version = "0.1.0"
-description = "HTTP-сервис аренды электросамокатов для Домашнего задания 1 (ДВФУ Бэкенд)"
+version = "0.2.0"
+description = "HTTP-сервис аренды электросамокатов для Задания 2 (FastAPI / Spring Boot)"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "pydantic>=2.0.0",
+]
 
 [tool.poetry]
 name = "scooter-rental-service"
-version = "0.1.0"
-description = "HTTP-сервис аренды электросамокатов для Домашнего задания 1 (ДВФУ Бэкенд)"
-authors = ["Student <student@dvfu.ru>"]
+version = "0.2.0"
+description = "HTTP-сервис аренды электросамокатов для Задания 2 (FastAPI / Spring Boot)"
+authors = ["Argon1x <xox12357@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.9"
+fastapi = ">=0.110.0"
+uvicorn = ">=0.28.0"
+pydantic = ">=2.0.0"
 
 [build-system]
 requires = ["poetry-core"]

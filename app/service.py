@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import List, Optional
 from app.exceptions import DomainRuleError, NotFoundError, ValidationError
 from app.models import (
     RegularUser,
@@ -8,14 +8,12 @@ from app.models import (
     VipUser,
     create_user_instance,
 )
+from app.repository import InMemoryRepository
 
 
 class RentalService:
-    def __init__(self):
-        self._users: Dict[int, User] = {}
-        self._scooters: Dict[int, Scooter] = {}
-        self._next_user_id: int = 1
-        self._next_scooter_id: int = 1
+    def __init__(self, repository: InMemoryRepository):
+        self._repo = repository
 
     def create_user(self, name: str, user_type: str = "regular") -> User:
         if not isinstance(name, str) or not name.strip():
@@ -27,21 +25,18 @@ class RentalService:
         if not isinstance(user_type, str):
             raise ValidationError("Поле 'user_type' должно быть строкой ('regular' или 'vip').")
 
-        user_id = self._next_user_id
-        self._next_user_id += 1
-
+        user_id = self._repo.get_next_user_id()
         user = create_user_instance(user_id=user_id, name=name.strip(), user_type=user_type)
-        self._users[user_id] = user
-        return user
+        return self._repo.save_user(user)
 
     def get_user(self, user_id: int) -> User:
-        user = self._users.get(user_id)
+        user = self._repo.find_user_by_id(user_id)
         if not user:
             raise NotFoundError(f"Пользователь с ID {user_id} не найден.")
         return user
 
     def list_users(self, user_type: Optional[str] = None) -> List[User]:
-        users = list(self._users.values())
+        users = self._repo.find_all_users()
         if user_type:
             clean_type = user_type.strip().lower()
             users = [u for u in users if u.user_type == clean_type]
@@ -72,7 +67,7 @@ class RentalService:
                         f"{len(user.rented_scooter_ids)} активных аренд, а лимит нового тарифа — {new_user.max_rentals}."
                     )
                 new_user.rented_scooter_ids = list(user.rented_scooter_ids)
-                self._users[user_id] = new_user
+                self._repo.save_user(new_user)
                 user = new_user
 
         return user
@@ -84,7 +79,7 @@ class RentalService:
                 f"Нельзя удалить пользователя с ID {user_id}, пока за ним числятся "
                 f"арендованные самокаты: {user.rented_scooter_ids}."
             )
-        del self._users[user_id]
+        self._repo.delete_user_by_id(user_id)
 
     def create_scooter(self, model: str, charge_level: int = 100) -> Scooter:
         if not isinstance(model, str) or not model.strip():
@@ -97,15 +92,12 @@ class RentalService:
         if charge_int < 0 or charge_int > 100:
             raise ValidationError("Уровень заряда должен быть в диапазоне от 0 до 100.")
 
-        scooter_id = self._next_scooter_id
-        self._next_scooter_id += 1
-
+        scooter_id = self._repo.get_next_scooter_id()
         scooter = Scooter(scooter_id=scooter_id, model=model.strip(), charge_level=charge_int)
-        self._scooters[scooter_id] = scooter
-        return scooter
+        return self._repo.save_scooter(scooter)
 
     def get_scooter(self, scooter_id: int) -> Scooter:
-        scooter = self._scooters.get(scooter_id)
+        scooter = self._repo.find_scooter_by_id(scooter_id)
         if not scooter:
             raise NotFoundError(f"Самокат с ID {scooter_id} не найден.")
         return scooter
@@ -115,7 +107,7 @@ class RentalService:
         status: Optional[str] = None,
         min_charge: Optional[int] = None,
     ) -> List[Scooter]:
-        result = list(self._scooters.values())
+        result = self._repo.find_all_scooters()
 
         if status:
             clean_status = status.strip().lower()
@@ -167,7 +159,7 @@ class RentalService:
             raise DomainRuleError(
                 f"Нельзя удалить самокат с ID {scooter_id}, так как он сейчас находится в аренде."
             )
-        del self._scooters[scooter_id]
+        self._repo.delete_scooter_by_id(scooter_id)
 
     def rent_scooter(self, scooter_id: int, user_id: int) -> Scooter:
         scooter = self.get_scooter(scooter_id)
@@ -219,7 +211,7 @@ class RentalService:
         scooter.charge_level = max(0, scooter.charge_level - int(battery_used))
 
         if scooter.current_user_id is not None:
-            user = self._users.get(scooter.current_user_id)
+            user = self._repo.find_user_by_id(scooter.current_user_id)
             if user and scooter.id in user.rented_scooter_ids:
                 user.rented_scooter_ids.remove(scooter.id)
             scooter.current_user_id = None

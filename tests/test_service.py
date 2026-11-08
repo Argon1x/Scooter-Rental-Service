@@ -1,13 +1,15 @@
 import unittest
 from app.exceptions import DomainRuleError, NotFoundError, ValidationError
 from app.models import RegularUser, ScooterStatus, VipUser
+from app.repository import InMemoryRepository
 from app.service import RentalService
 
 
 class TestRentalService(unittest.TestCase):
 
     def setUp(self):
-        self.service = RentalService()
+        self.repository = InMemoryRepository()
+        self.service = RentalService(repository=self.repository)
 
     def test_create_and_get_user(self):
         user = self.service.create_user("Алексей", "regular")
