@@ -1,13 +1,15 @@
 import unittest
 from app.exceptions import DomainRuleError, NotFoundError, ValidationError
 from app.models import RegularUser, ScooterStatus, VipUser
+from app.repository import InMemoryRepository
 from app.service import RentalService
 
 
 class TestRentalService(unittest.TestCase):
 
     def setUp(self):
-        self.service = RentalService()
+        self.repository = InMemoryRepository()
+        self.service = RentalService(repository=self.repository)
 
     def test_create_and_get_user(self):
         user = self.service.create_user("Алексей", "regular")
@@ -186,6 +188,69 @@ class TestRentalService(unittest.TestCase):
 
         with self.assertRaises(DomainRuleError):
             self.service.delete_scooter(scooter.id)
+
+    def test_update_user_atomic_on_invalid_type(self):
+        user = self.service.create_user("Иван", "regular")
+        with self.assertRaises(ValidationError):
+            self.service.update_user(user.id, name="Новый Иван", user_type="invalid_type")
+        fetched = self.service.get_user(user.id)
+        self.assertEqual(fetched.name, "Иван")
+
+    def test_update_user_atomic_on_rental_limit_exceeded(self):
+        vip = self.service.create_user("Анна", "vip")
+        s1 = self.service.create_scooter("Ninebot 1", 90)
+        s2 = self.service.create_scooter("Ninebot 2", 90)
+        self.service.rent_scooter(s1.id, vip.id)
+        self.service.rent_scooter(s2.id, vip.id)
+        with self.assertRaises(DomainRuleError):
+            self.service.update_user(vip.id, name="Новая Анна", user_type="regular")
+        fetched = self.service.get_user(vip.id)
+        self.assertEqual(fetched.name, "Анна")
+        self.assertEqual(fetched.user_type, "vip")
+
+    def test_update_scooter_atomic_on_invalid_charge(self):
+        scooter = self.service.create_scooter("Ninebot", 80)
+        with self.assertRaises(ValidationError):
+            self.service.update_scooter(scooter.id, model="Новая модель", charge_level=200)
+        fetched = self.service.get_scooter(scooter.id)
+        self.assertEqual(fetched.model, "Ninebot")
+
+    def test_update_scooter_atomic_on_rented_charge_update(self):
+        user = self.service.create_user("Иван", "regular")
+        scooter = self.service.create_scooter("Ninebot", 80)
+        self.service.rent_scooter(scooter.id, user.id)
+        with self.assertRaises(DomainRuleError):
+            self.service.update_scooter(scooter.id, model="Новая модель", charge_level=95)
+        fetched = self.service.get_scooter(scooter.id)
+        self.assertEqual(fetched.model, "Ninebot")
+
+    def test_concurrent_rent_scooter_thread_safety(self):
+        import concurrent.futures
+        u1 = self.service.create_user("Пользователь 1", "regular")
+        u2 = self.service.create_user("Пользователь 2", "regular")
+        scooter = self.service.create_scooter("Ninebot", 90)
+
+        results = []
+        errors = []
+
+        def try_rent(u_id):
+            try:
+                res = self.service.rent_scooter(scooter.id, u_id)
+                results.append(res)
+            except Exception as e:
+                errors.append(e)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            f1 = executor.submit(try_rent, u1.id)
+            f2 = executor.submit(try_rent, u2.id)
+            f1.result()
+            f2.result()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], DomainRuleError)
+        fetched = self.service.get_scooter(scooter.id)
+        self.assertEqual(fetched.status, ScooterStatus.RENTED)
 
 
 if __name__ == "__main__":
