@@ -1,7 +1,7 @@
 [project]
 name = "scooter-rental-service"
 version = "0.2.0"
-description = "HTTP-сервис аренды электросамокатов для Задания 2 (FastAPI / Spring Boot)"
+description = "Сервис аренды электросамокатов для Задания 2"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 [tool.poetry]
 name = "scooter-rental-service"
 version = "0.2.0"
-description = "HTTP-сервис аренды электросамокатов для Задания 2 (FastAPI / Spring Boot)"
+description = "Сервис аренды электросамокатов для Задания 2"
 authors = ["Argon1x <xox12357@gmail.com>"]
 readme = "README.md"
 
