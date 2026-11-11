@@ -163,3 +163,13 @@ echo ""
 echo "=== 32. Delete user DELETE /api/users/3 ==="
 curl -i -X DELETE "${BASE_URL}/api/users/3"
 echo ""
+
+echo "=== 33. Atomic update test: user update with invalid type PUT /api/users/1 ==="
+curl -i -X PUT "${BASE_URL}/api/users/1" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Некорректная Попытка", "user_type": "bad_type"}'
+echo ""
+
+echo "=== 34. Check user #1 name was NOT changed after failed update GET /api/users/1 ==="
+curl -i -X GET "${BASE_URL}/api/users/1"
+echo ""
