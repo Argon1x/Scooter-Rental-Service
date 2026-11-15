@@ -1,19 +1,33 @@
+from contextlib import asynccontextmanager
 import logging
 import os
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import uvicorn
+from app.database import run_migrations
+from app.dependencies import get_service
 from app.exceptions import AppException
+from app.routers.rentals import router as rentals_router
 from app.routers.scooters import router as scooters_router
 from app.routers.users import router as users_router
 
 logger = logging.getLogger("scooter_app")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_migrations()
+    service = get_service()
+    service.seed_initial_data_if_empty()
+    yield
+
+
 app = FastAPI(
     title="Scooter Rental Service",
-    description="HTTP-сервис аренды электросамокатов для Задания 2",
-    version="2.0.0",
+    description="HTTP-сервис аренды электросамокатов для Задания 3",
+    version="3.0.0",
+    lifespan=lifespan,
 )
 
 
@@ -66,13 +80,14 @@ def ping():
 def root():
     return {
         "service": "Scooter Rental Service",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "docs_url": "/docs",
     }
 
 
 app.include_router(users_router, prefix="/api/users", tags=["Users"])
 app.include_router(scooters_router, prefix="/api/scooters", tags=["Scooters"])
+app.include_router(rentals_router, prefix="/api/rentals", tags=["Rentals"])
 
 if __name__ == "__main__":
     port_str = os.getenv("PORT", "8080")

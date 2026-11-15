@@ -1,15 +1,29 @@
 import unittest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+import app.dependencies as deps
+from app.database import Base
 from app.exceptions import DomainRuleError, NotFoundError, ValidationError
 from app.models import RegularUser, ScooterStatus, VipUser
-from app.repository import InMemoryRepository
+from app.repository import SqlAlchemyRepository
 from app.service import RentalService
 
 
 class TestRentalService(unittest.TestCase):
 
     def setUp(self):
-        self.repository = InMemoryRepository()
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+        self.repository = SqlAlchemyRepository(session_factory=session_factory)
         self.service = RentalService(repository=self.repository)
+        deps._repository = self.repository
+        deps._service = self.service
 
     def test_create_and_get_user(self):
         user = self.service.create_user("Алексей", "regular")

@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
 
 class UserCreateRequest(BaseModel):
@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     user_type: str
     max_rentals: int
     rented_scooter_ids: List[int]
+    rented_scooters: Optional[List[Dict[str, Any]]] = None
 
 
 class ScooterCreateRequest(BaseModel):
@@ -36,6 +37,17 @@ class ScooterResponse(BaseModel):
     charge_level: int
     status: str
     current_user_id: Optional[int] = None
+    current_user: Optional[Dict[str, Any]] = None
+
+
+class RentalResponse(BaseModel):
+    id: int
+    user_id: int
+    scooter_id: int
+    status: str
+    battery_used: Optional[int] = 0
+    user_name: Optional[str] = None
+    scooter_model: Optional[str] = None
 
 
 class RentRequest(BaseModel):

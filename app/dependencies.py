@@ -1,12 +1,12 @@
-from app.repository import InMemoryRepository
+from app.database import SessionLocal
+from app.repository import SqlAlchemyRepository
 from app.service import RentalService
 
-_repository = InMemoryRepository()
+_repository = SqlAlchemyRepository(session_factory=SessionLocal)
 _service = RentalService(repository=_repository)
-_service.seed_initial_data()
 
 
-def get_repository() -> InMemoryRepository:
+def get_repository() -> SqlAlchemyRepository:
     return _repository
 
 

@@ -173,3 +173,7 @@ echo ""
 echo "=== 34. Проверка: имя пользователя не изменилось после ошибки ==="
 curl -i -X GET "${BASE_URL}/api/users/1"
 echo ""
+
+echo "=== 35. История и журнал аренд GET /api/rentals ==="
+curl -i -X GET "${BASE_URL}/api/rentals"
+echo ""
