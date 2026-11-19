@@ -13,9 +13,10 @@ from app.repository import SqlAlchemyRepository
 
 
 class RentalService:
+    _lock = threading.RLock()
+
     def __init__(self, repository: SqlAlchemyRepository):
         self._repo = repository
-        self._lock = threading.RLock()
 
     def create_user(self, name: str, user_type: str = "regular") -> UserModel:
         if not isinstance(name, str) or not name.strip():
@@ -71,40 +72,43 @@ class RentalService:
                     f"Неизвестный тип пользователя '{user_type}'. Допустимые типы: 'regular', 'vip'."
                 )
 
-        with self._repo.session_factory() as session:
-            with session.begin():
-                user = (
-                    session.query(UserModel)
-                    .options(joinedload(UserModel.rented_scooters))
-                    .filter(UserModel.id == user_id)
-                    .first()
-                )
-                if not user:
-                    raise NotFoundError(f"Пользователь с ID {user_id} не найден.")
+        with self._lock:
+            with self._repo.session_factory() as session:
+                with session.begin():
+                    user = (
+                        session.query(UserModel)
+                        .with_for_update()
+                        .options(joinedload(UserModel.rented_scooters))
+                        .filter(UserModel.id == user_id)
+                        .first()
+                    )
+                    if not user:
+                        raise NotFoundError(f"Пользователь с ID {user_id} не найден.")
 
-                if clean_type is not None and clean_type != user.user_type:
-                    max_allowed = 3 if clean_type == "vip" else 1
-                    if len(user.rented_scooter_ids) > max_allowed:
-                        raise DomainRuleError(
-                            f"Нельзя сменить тип на '{clean_type}': у пользователя сейчас "
-                            f"{len(user.rented_scooter_ids)} активных аренд, а лимит нового тарифа — {max_allowed}."
-                        )
-                    user.user_type = clean_type
+                    if clean_type is not None and clean_type != user.user_type:
+                        max_allowed = 3 if clean_type == "vip" else 1
+                        if len(user.rented_scooter_ids) > max_allowed:
+                            raise DomainRuleError(
+                                f"Нельзя сменить тип на '{clean_type}': у пользователя сейчас "
+                                f"{len(user.rented_scooter_ids)} активных аренд, а лимит нового тарифа — {max_allowed}."
+                            )
+                        user.user_type = clean_type
 
-                if clean_name is not None:
-                    user.name = clean_name
+                    if clean_name is not None:
+                        user.name = clean_name
 
-            session.refresh(user)
-            return user
+                session.refresh(user)
+                return user
 
     def delete_user(self, user_id: int) -> None:
-        user = self.get_user(user_id)
-        if user.rented_scooter_ids:
-            raise DomainRuleError(
-                f"Нельзя удалить пользователя с ID {user_id}, пока за ним числятся "
-                f"арендованные самокаты: {user.rented_scooter_ids}."
-            )
-        self._repo.delete_user_by_id(user_id)
+        with self._lock:
+            user = self.get_user(user_id)
+            if user.rented_scooter_ids:
+                raise DomainRuleError(
+                    f"Нельзя удалить пользователя с ID {user_id}, пока за ним числятся "
+                    f"арендованные самокаты: {user.rented_scooter_ids}."
+                )
+            self._repo.delete_user_by_id(user_id)
 
     def create_scooter(self, model: str, charge_level: int = 100) -> ScooterModel:
         if not isinstance(model, str) or not model.strip():
@@ -161,44 +165,47 @@ class RentalService:
                 raise ValidationError("Уровень заряда должен быть от 0 до 100.")
             clean_charge = charge_int
 
-        with self._repo.session_factory() as session:
-            with session.begin():
-                scooter = (
-                    session.query(ScooterModel)
-                    .options(joinedload(ScooterModel.current_user))
-                    .filter(ScooterModel.id == scooter_id)
-                    .first()
-                )
-                if not scooter:
-                    raise NotFoundError(f"Самокат с ID {scooter_id} не найден.")
-
-                if scooter.status == ScooterStatus.RENTED.value and clean_charge is not None:
-                    raise DomainRuleError(
-                        f"Нельзя изменять уровень заряда самоката №{scooter_id}, пока он находится в поездке.",
-                        status_code=409,
+        with self._lock:
+            with self._repo.session_factory() as session:
+                with session.begin():
+                    scooter = (
+                        session.query(ScooterModel)
+                        .with_for_update()
+                        .options(joinedload(ScooterModel.current_user))
+                        .filter(ScooterModel.id == scooter_id)
+                        .first()
                     )
+                    if not scooter:
+                        raise NotFoundError(f"Самокат с ID {scooter_id} не найден.")
 
-                if clean_model is not None:
-                    scooter.model = clean_model
+                    if scooter.status == ScooterStatus.RENTED.value and clean_charge is not None:
+                        raise DomainRuleError(
+                            f"Нельзя изменять уровень заряда самоката №{scooter_id}, пока он находится в поездке.",
+                            status_code=409,
+                        )
 
-                if clean_charge is not None:
-                    scooter.charge_level = clean_charge
-                    if scooter.status != ScooterStatus.RENTED.value:
-                        if scooter.charge_level < 20:
-                            scooter.status = ScooterStatus.MAINTENANCE.value
-                        else:
-                            scooter.status = ScooterStatus.AVAILABLE.value
+                    if clean_model is not None:
+                        scooter.model = clean_model
 
-            session.refresh(scooter)
-            return scooter
+                    if clean_charge is not None:
+                        scooter.charge_level = clean_charge
+                        if scooter.status != ScooterStatus.RENTED.value:
+                            if scooter.charge_level < 20:
+                                scooter.status = ScooterStatus.MAINTENANCE.value
+                            else:
+                                scooter.status = ScooterStatus.AVAILABLE.value
+
+                session.refresh(scooter)
+                return scooter
 
     def delete_scooter(self, scooter_id: int) -> None:
-        scooter = self.get_scooter(scooter_id)
-        if scooter.status == ScooterStatus.RENTED.value:
-            raise DomainRuleError(
-                f"Нельзя удалить самокат с ID {scooter_id}, так как он сейчас находится в аренде."
-            )
-        self._repo.delete_scooter_by_id(scooter_id)
+        with self._lock:
+            scooter = self.get_scooter(scooter_id)
+            if scooter.status == ScooterStatus.RENTED.value:
+                raise DomainRuleError(
+                    f"Нельзя удалить самокат с ID {scooter_id}, так как он сейчас находится в аренде."
+                )
+            self._repo.delete_scooter_by_id(scooter_id)
 
     def rent_scooter(self, scooter_id: int, user_id: int) -> ScooterModel:
         with self._lock:
@@ -206,6 +213,7 @@ class RentalService:
                 with session.begin():
                     scooter = (
                         session.query(ScooterModel)
+                        .with_for_update()
                         .options(joinedload(ScooterModel.current_user))
                         .filter(ScooterModel.id == scooter_id)
                         .first()
@@ -215,6 +223,7 @@ class RentalService:
 
                     user = (
                         session.query(UserModel)
+                        .with_for_update()
                         .options(joinedload(UserModel.rented_scooters))
                         .filter(UserModel.id == user_id)
                         .first()
@@ -253,6 +262,8 @@ class RentalService:
                     rental = RentalModel(
                         user_id=user.id,
                         scooter_id=scooter.id,
+                        user_name=user.name,
+                        scooter_model=scooter.model,
                         status="active",
                         battery_used=0,
                     )
@@ -270,6 +281,7 @@ class RentalService:
                 with session.begin():
                     scooter = (
                         session.query(ScooterModel)
+                        .with_for_update()
                         .options(joinedload(ScooterModel.current_user))
                         .filter(ScooterModel.id == scooter_id)
                         .first()
@@ -285,6 +297,7 @@ class RentalService:
 
                     rental = (
                         session.query(RentalModel)
+                        .with_for_update()
                         .filter(RentalModel.scooter_id == scooter_id, RentalModel.status == "active")
                         .first()
                     )
@@ -306,29 +319,31 @@ class RentalService:
         if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
             raise ValidationError("Значение подзарядки (amount) должно быть положительным числом.")
 
-        with self._repo.session_factory() as session:
-            with session.begin():
-                scooter = (
-                    session.query(ScooterModel)
-                    .options(joinedload(ScooterModel.current_user))
-                    .filter(ScooterModel.id == scooter_id)
-                    .first()
-                )
-                if not scooter:
-                    raise NotFoundError(f"Самокат с ID {scooter_id} не найден.")
-
-                if scooter.status == ScooterStatus.RENTED.value:
-                    raise DomainRuleError(
-                        f"Нельзя заряжать самокат №{scooter_id}, пока он находится в поездке.",
-                        status_code=409,
+        with self._lock:
+            with self._repo.session_factory() as session:
+                with session.begin():
+                    scooter = (
+                        session.query(ScooterModel)
+                        .with_for_update()
+                        .options(joinedload(ScooterModel.current_user))
+                        .filter(ScooterModel.id == scooter_id)
+                        .first()
                     )
+                    if not scooter:
+                        raise NotFoundError(f"Самокат с ID {scooter_id} не найден.")
 
-                scooter.charge_level = min(100, scooter.charge_level + int(amount))
-                if scooter.status == ScooterStatus.MAINTENANCE.value and scooter.charge_level >= 20:
-                    scooter.status = ScooterStatus.AVAILABLE.value
+                    if scooter.status == ScooterStatus.RENTED.value:
+                        raise DomainRuleError(
+                            f"Нельзя заряжать самокат №{scooter_id}, пока он находится в поездке.",
+                            status_code=409,
+                        )
 
-            session.refresh(scooter)
-            return scooter
+                    scooter.charge_level = min(100, scooter.charge_level + int(amount))
+                    if scooter.status == ScooterStatus.MAINTENANCE.value and scooter.charge_level >= 20:
+                        scooter.status = ScooterStatus.AVAILABLE.value
+
+                session.refresh(scooter)
+                return scooter
 
     def list_rentals(self) -> List[RentalModel]:
         return self._repo.find_all_rentals()

@@ -19,8 +19,8 @@ class TestRentalService(unittest.TestCase):
             poolclass=StaticPool,
         )
         Base.metadata.create_all(engine)
-        session_factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
-        self.repository = SqlAlchemyRepository(session_factory=session_factory)
+        self.session_factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+        self.repository = SqlAlchemyRepository(session_factory=self.session_factory)
         self.service = RentalService(repository=self.repository)
         deps._repository = self.repository
         deps._service = self.service
@@ -61,6 +61,31 @@ class TestRentalService(unittest.TestCase):
 
         self.assertEqual(len(regulars), 2)
         self.assertEqual(len(vips), 1)
+
+    def test_update_user_change_type_to_vip(self):
+        user = self.service.create_user("Иван", "regular")
+        self.assertIsInstance(user, RegularUser)
+        self.assertEqual(user.max_rentals, 1)
+
+        updated = self.service.update_user(user.id, user_type="vip")
+        self.assertIsInstance(updated, VipUser)
+        self.assertEqual(updated.user_type, "vip")
+        self.assertEqual(updated.max_rentals, 3)
+
+        fetched = self.service.get_user(user.id)
+        self.assertIsInstance(fetched, VipUser)
+        self.assertEqual(fetched.user_type, "vip")
+        self.assertEqual(fetched.max_rentals, 3)
+
+    def test_update_user_change_type_to_regular(self):
+        vip = self.service.create_user("Анна", "vip")
+        self.assertIsInstance(vip, VipUser)
+        self.assertEqual(vip.max_rentals, 3)
+
+        updated = self.service.update_user(vip.id, user_type="regular")
+        self.assertIsInstance(updated, RegularUser)
+        self.assertEqual(updated.user_type, "regular")
+        self.assertEqual(updated.max_rentals, 1)
 
     def test_create_and_get_scooter(self):
         scooter = self.service.create_scooter("Ninebot Max", 85)
@@ -265,6 +290,82 @@ class TestRentalService(unittest.TestCase):
         self.assertIsInstance(errors[0], DomainRuleError)
         fetched = self.service.get_scooter(scooter.id)
         self.assertEqual(fetched.status, ScooterStatus.RENTED)
+
+    def test_concurrent_rental_between_different_service_instances(self):
+        import concurrent.futures
+        repo1 = SqlAlchemyRepository(session_factory=self.session_factory)
+        repo2 = SqlAlchemyRepository(session_factory=self.session_factory)
+        service1 = RentalService(repository=repo1)
+        service2 = RentalService(repository=repo2)
+
+        u1 = service1.create_user("Клиент 1", "regular")
+        u2 = service2.create_user("Клиент 2", "regular")
+        scooter = service1.create_scooter("Ninebot Concurrency", 90)
+
+        results = []
+        errors = []
+
+        def try_rent(service_instance, user_id):
+            try:
+                res = service_instance.rent_scooter(scooter.id, user_id)
+                results.append(res)
+            except Exception as e:
+                errors.append(e)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            f1 = executor.submit(try_rent, service1, u1.id)
+            f2 = executor.submit(try_rent, service2, u2.id)
+            f1.result()
+            f2.result()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], DomainRuleError)
+        fetched = service1.get_scooter(scooter.id)
+        self.assertEqual(fetched.status, ScooterStatus.RENTED)
+
+    def test_concurrent_rent_and_update_scooter(self):
+        import concurrent.futures
+        repo1 = SqlAlchemyRepository(session_factory=self.session_factory)
+        repo2 = SqlAlchemyRepository(session_factory=self.session_factory)
+        service1 = RentalService(repository=repo1)
+        service2 = RentalService(repository=repo2)
+
+        user = service1.create_user("Клиент Конкурентный", "regular")
+        scooter = service1.create_scooter("Ninebot Race", 90)
+
+        events = []
+
+        def do_rent():
+            try:
+                service1.rent_scooter(scooter.id, user.id)
+                events.append("rent_ok")
+            except Exception as e:
+                events.append(f"rent_error: {type(e).__name__}")
+
+        def do_update_charge():
+            try:
+                service2.update_scooter(scooter.id, charge_level=10)
+                events.append("update_ok")
+            except Exception as e:
+                events.append(f"update_error: {type(e).__name__}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            f1 = executor.submit(do_rent)
+            f2 = executor.submit(do_update_charge)
+            f1.result()
+            f2.result()
+
+        self.assertEqual(len(events), 2)
+        fresh_scooter = service1.get_scooter(scooter.id)
+        if "rent_ok" in events:
+            self.assertEqual(fresh_scooter.status, ScooterStatus.RENTED)
+            self.assertEqual(fresh_scooter.current_user_id, user.id)
+            self.assertIn("update_error: DomainRuleError", events)
+        else:
+            self.assertEqual(fresh_scooter.status, ScooterStatus.MAINTENANCE)
+            self.assertEqual(fresh_scooter.charge_level, 10)
+            self.assertIn("rent_error: DomainRuleError", events)
 
 
 if __name__ == "__main__":

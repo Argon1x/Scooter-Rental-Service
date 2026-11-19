@@ -42,8 +42,8 @@ class ScooterResponse(BaseModel):
 
 class RentalResponse(BaseModel):
     id: int
-    user_id: int
-    scooter_id: int
+    user_id: Optional[int] = None
+    scooter_id: Optional[int] = None
     status: str
     battery_used: Optional[int] = 0
     user_name: Optional[str] = None

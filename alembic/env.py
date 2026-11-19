@@ -9,7 +9,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-db_url = os.getenv("DATABASE_URL", "sqlite:///./scooters.db")
+db_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/scooter_db")
 config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata

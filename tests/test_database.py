@@ -45,6 +45,8 @@ class TestDatabaseRequirements(unittest.TestCase):
         self.assertEqual(len(rentals), 1)
         self.assertEqual(rentals[0].user_id, user.id)
         self.assertEqual(rentals[0].scooter_id, scooter.id)
+        self.assertEqual(rentals[0].user_name, "Дмитрий")
+        self.assertEqual(rentals[0].scooter_model, "Ninebot Max")
         self.assertEqual(rentals[0].status, "active")
 
         returned = self.service.return_scooter(scooter.id, battery_used=25)
@@ -57,6 +59,28 @@ class TestDatabaseRequirements(unittest.TestCase):
         self.assertEqual(rentals_after[0].status, "completed")
         self.assertEqual(rentals_after[0].battery_used, 25)
 
+    def test_rental_history_preserved_after_user_and_scooter_deleted(self):
+        user = self.service.create_user("Дмитрий", "regular")
+        scooter = self.service.create_scooter("Ninebot Max", 90)
+
+        self.service.rent_scooter(scooter.id, user.id)
+        self.service.return_scooter(scooter.id, battery_used=20)
+
+        self.service.delete_user(user.id)
+        self.service.delete_scooter(scooter.id)
+
+        rentals = self.service.list_rentals()
+        self.assertEqual(len(rentals), 1)
+        r = rentals[0]
+        self.assertEqual(r.status, "completed")
+        self.assertIsNone(r.user_id)
+        self.assertIsNone(r.scooter_id)
+        self.assertEqual(r.user_name, "Дмитрий")
+        self.assertEqual(r.scooter_model, "Ninebot Max")
+        self.assertEqual(r.battery_used, 20)
+        self.assertEqual(r.to_dict()["user_name"], "Дмитрий")
+        self.assertEqual(r.to_dict()["scooter_model"], "Ninebot Max")
+
     def test_transaction_rollback_prevents_partial_changes(self):
         user = self.service.create_user("Сергей", "regular")
         scooter = self.service.create_scooter("Xiaomi", 80)
@@ -67,7 +91,13 @@ class TestDatabaseRequirements(unittest.TestCase):
                     s = session.query(ScooterModel).filter(ScooterModel.id == scooter.id).first()
                     s.status = ScooterStatus.RENTED.value
                     s.current_user_id = user.id
-                    rental = RentalModel(user_id=user.id, scooter_id=scooter.id, status="active")
+                    rental = RentalModel(
+                        user_id=user.id,
+                        scooter_id=scooter.id,
+                        user_name=user.name,
+                        scooter_model=scooter.model,
+                        status="active",
+                    )
                     session.add(rental)
                     raise RuntimeError("Имитация сбоя в середине транзакции")
 
@@ -103,6 +133,10 @@ class TestDatabaseRequirements(unittest.TestCase):
         self.service.delete_user(user.id)
         with self.assertRaises(NotFoundError):
             self.service.get_user(user.id)
+
+        rentals = self.service.list_rentals()
+        self.assertEqual(len(rentals), 1)
+        self.assertEqual(rentals[0].status, "completed")
 
     def test_n_plus_one_avoidance_on_large_dataset(self):
         for i in range(1, 35):

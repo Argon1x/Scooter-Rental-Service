@@ -12,6 +12,15 @@ class ScooterStatus(str, Enum):
     MAINTENANCE = "maintenance"
 
 
+class UserTypeMeta(type):
+    def __instancecheck__(cls, instance):
+        if cls.__name__ == "RegularUser":
+            return isinstance(instance, UserModel) and getattr(instance, "user_type", None) == "regular"
+        if cls.__name__ == "VipUser":
+            return isinstance(instance, UserModel) and getattr(instance, "user_type", None) == "vip"
+        return super().__instancecheck__(instance)
+
+
 class UserModel(Base):
     __tablename__ = "users"
 
@@ -24,16 +33,11 @@ class UserModel(Base):
         back_populates="current_user",
         foreign_keys="[ScooterModel.current_user_id]",
     )
-    rentals = relationship("RentalModel", back_populates="user", cascade="all, delete-orphan")
-
-    __mapper_args__ = {
-        "polymorphic_on": user_type,
-        "polymorphic_identity": "base",
-    }
+    rentals = relationship("RentalModel", back_populates="user")
 
     @property
     def max_rentals(self) -> int:
-        return 1
+        return 3 if self.user_type == "vip" else 1
 
     @property
     def rented_scooter_ids(self) -> List[int]:
@@ -80,24 +84,20 @@ class UserModel(Base):
         }
 
 
-class RegularUser(UserModel):
-    __mapper_args__ = {
-        "polymorphic_identity": "regular",
-    }
+class RegularUser(metaclass=UserTypeMeta):
+    max_rentals = 1
 
-    @property
-    def max_rentals(self) -> int:
-        return 1
+    def __new__(cls, *args, **kwargs):
+        kwargs["user_type"] = "regular"
+        return UserModel(*args, **kwargs)
 
 
-class VipUser(UserModel):
-    __mapper_args__ = {
-        "polymorphic_identity": "vip",
-    }
+class VipUser(metaclass=UserTypeMeta):
+    max_rentals = 3
 
-    @property
-    def max_rentals(self) -> int:
-        return 3
+    def __new__(cls, *args, **kwargs):
+        kwargs["user_type"] = "vip"
+        return UserModel(*args, **kwargs)
 
 
 def create_user_instance(user_id: Optional[int], name: str, user_type: str) -> UserModel:
@@ -131,7 +131,7 @@ class ScooterModel(Base):
         back_populates="rented_scooters",
         foreign_keys=[current_user_id],
     )
-    rentals = relationship("RentalModel", back_populates="scooter", cascade="all, delete-orphan")
+    rentals = relationship("RentalModel", back_populates="scooter")
 
     def to_dict(self) -> Dict[str, Any]:
         data = {
@@ -156,8 +156,10 @@ class RentalModel(Base):
     __tablename__ = "rentals"
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
-    scooter_id = Column(Integer, ForeignKey("scooters.id", ondelete="RESTRICT"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    scooter_id = Column(Integer, ForeignKey("scooters.id", ondelete="SET NULL"), nullable=True)
+    user_name = Column(String, nullable=True)
+    scooter_model = Column(String, nullable=True)
     status = Column(String, nullable=False, default="active")
     battery_used = Column(Integer, nullable=True, default=0)
 
@@ -171,8 +173,8 @@ class RentalModel(Base):
             "scooter_id": self.scooter_id,
             "status": self.status,
             "battery_used": self.battery_used,
-            "user_name": self.user.name if self.user else None,
-            "scooter_model": self.scooter.model if self.scooter else None,
+            "user_name": self.user.name if self.user else self.user_name,
+            "scooter_model": self.scooter.model if self.scooter else self.scooter_model,
         }
 
 
